@@ -1,75 +1,39 @@
-# codemagic.yaml
-# Этот файл для Codemagic CI/CD.
-# Он должен находиться в корне вашего Git-репозитория.
-
 workflows:
   ios-workflow:
-    name: KMM iOS Workflow (Без подписывания и публикации)
-    instance_type: mac_mini_m1 # Рекомендуется для более быстрой сборки iOS
-    # Также доступны: mac_mini_m2, mac_pro
+    name: KMM iOS Workflow
+    instance_type: mac_mini_m2
 
-    max_build_duration: 120 # Максимальная продолжительность сборки в минутах
+    max_build_duration: 120
 
     environment:
       vars:
-        # Переменные, специфичные для вашего проекта.
-        # Замените значения на свои.
-        XCODE_WORKSPACE: "iosApp.xcworkspace" # Используйте .xcworkspace, если у вас CocoaPods, иначе .xcodeproj
-        XCODE_SCHEME: "iosApp"                # Имя схемы вашего iOS-приложения в Xcode
-        # Если вы не используете Cocoapods, замените XCODE_WORKSPACE на XCODE_PROJECT: "iosApp.xcodeproj"
-        # и соответствующим образом измените команды xcode-project build-ipa
+        XCODE_PROJECT: "iosApp.xcodeproj"
+        XCODE_SCHEME: "iosApp"
 
-      # Версия Xcode, которую использовать на сборочной машине.
-      # Убедитесь, что она соответствует требованиям вашего проекта.
-      xcode: 15.3 # Например, 15.3
-
-      # Версия Java для Gradle.
-      # Убедитесь, что она соответствует требованиям вашего проекта и Gradle.
-      java: 17 # Например, 17 или 21
+      xcode: latest
+      java: 21
 
     triggering:
       events:
         - push
         - pull_request
-      # ignore:
-      #   - tags/* # Закомментируйте, если хотите игнорировать сборки по тегам
 
     scripts:
-      # 1. Настройка прав для Gradle Wrapper
       - name: Set up Gradle Wrapper permissions
         script: |
           chmod +x ./gradlew
 
-      # 2. Сборка общего Kotlin Multiplatform iOS фреймворка
-      # Эта задача компилирует ваш Kotlin-код из модуля 'shared' в нативный iOS фреймворк.
-      # 'linkReleaseFrameworkIosArm64' собирает фреймворк для реальных устройств и симуляторов.
-      # Если нужен только отладочный, используйте 'linkDebugFrameworkIosArm64'.
       - name: Build Kotlin Multiplatform iOS Framework
         script: |
           ./gradlew :composeApp:linkReleaseFrameworkIosArm64
 
-
-      # 5. Сборка IPA для распределения (даже без подписывания)
-      # Это создаст архив и IPA-файл.
-      # Если у вас нет CocoaPods, замените '--workspace "$XCODE_WORKSPACE"'
-      # на '--project "iosApp.xcodeproj"'.
-      # Обратите внимание: без секции 'ios_signing' и соответствующих настроек
-      # этот IPA не будет подписан и не сможет быть установлен на реальное устройство.
       - name: Build IPA for distribution
         script: |
           cd $CM_BUILD_DIR/iosApp
           xcode-project build-ipa \
-            --workspace "$XCODE_WORKSPACE" \
+            --project "$XCODE_PROJECT" \
             --scheme "$XCODE_SCHEME" \
-            --clean # Очистка перед сборкой для надежности
-            # Если вы не используете подписывание, вам может понадобиться убрать '--exportOptionsPlist'
-            # или указать очень минимальный, без информации о подписывании.
-            # Если вы вообще не хотите IPA, а просто проверить компиляцию, можно использовать 'xcodebuild build'
-            # вместо 'xcode-project build-ipa'.
+            --clean
 
     artifacts:
-      # Путь к сгенерированному IPA файлу.
-      # Codemagic обычно помещает его в 'build/ipa' внутри рабочей директории Xcode-проекта.
       - iosApp/build/ipa/*.ipa
-      - $CM_BUILD_DIR/iosApp/build/reports/**/*.xml # (Опционально) Если у вас есть тестовые отчеты
-      - /tmp/xcode_logs/*.log # (Опционально) Логи Xcode для отладки
