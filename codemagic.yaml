@@ -46,7 +46,7 @@ workflows:
       # Если нужен только отладочный, используйте 'linkDebugFrameworkIosArm64'.
       - name: Build Kotlin Multiplatform iOS Framework
         script: |
-          ./gradlew :shared:linkReleaseFrameworkIosArm64
+          ./gradlew :composeApp:linkReleaseFrameworkIosArm64
 
       # 3. Установка CocoaPods (если ваш 'iosApp' использует CocoaPods)
       # Закомментируйте эту секцию, если ваш iOS-проект не использует CocoaPods.
@@ -55,28 +55,6 @@ workflows:
           cd $CM_BUILD_DIR/iosApp
           pod install --repo-update
 
-      # 4. (Опционально) Увеличение номера сборки
-      # Эта секция использует app-store-connect CLI для получения номера сборки,
-      # но поскольку вы не используете публикацию, она может быть удалена или изменена.
-      # Если вы не будете публиковать в App Store Connect,
-      # 'app-store-connect get-latest-app-store-build-number' не будет работать.
-      # Вместо этого вы можете просто увеличивать номер версии вручную или использовать
-      # другой механизм для версионирования.
-      - name: Increment build number (optional, adjust as needed)
-        script: |
-          #!/bin/sh
-          set -e
-          set -x
-          cd $CM_BUILD_DIR/iosApp # Переходим в директорию Xcode-проекта
-          # Пример простого увеличения номера сборки, не привязанного к App Store Connect:
-          # current_build=$(xcode-project get-info-plist-value --path "iosApp/Info.plist" --key "CFBundleVersion")
-          # new_build=$(($current_build + 1))
-          # xcode-project set-info-plist-value --path "iosApp/Info.plist" --key "CFBundleVersion" --value "$new_build"
-          
-          # Если вы все равно хотите использовать agvtool и не привязаны к App Store Connect для номера
-          # можете установить начальное значение или получить его из другой системы
-          agvtool new-version -all $(($CM_BUILD_NUMBER + 1)) # Использует внутренний номер сборки Codemagic
-          echo "Build number updated to $(($CM_BUILD_NUMBER + 1))"
 
       # 5. Сборка IPA для распределения (даже без подписывания)
       # Это создаст архив и IPA-файл.
