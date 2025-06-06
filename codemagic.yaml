@@ -1,149 +1,104 @@
 # codemagic.yaml
-#
-# Этот файл определяет процесс CI/CD для вашего Kotlin Multiplatform (KMP)
-# приложения с Compose Multiplatform UI для iOS на Codemagic.
+# Этот файл для Codemagic CI/CD.
+# Он должен находиться в корне вашего Git-репозитория.
 
 workflows:
-  ios-release:
-    name: iOS Release Build
-    # Список веток, при пуше в которые будет запускаться этот workflow.
-    # Если вы хотите запускать его только вручную, закомментируйте эту строку.
-    trigger:
-      branch:
-        - main
-        - develop
+  ios-workflow:
+    name: KMM iOS Workflow (Без подписывания и публикации)
+    instance_type: mac_mini_m1 # Рекомендуется для более быстрой сборки iOS
+    # Также доступны: mac_mini_m2, mac_pro
 
-    # Выбор виртуальной машины macOS для сборки iOS.
-    # macOS-latest обычно соответствует последней стабильной версии.
-    instance_type: mac_mini_m1
+    max_build_duration: 120 # Максимальная продолжительность сборки в минутах
+
     environment:
-      # Важные переменные окружения для iOS-сборки.
-      # Эти переменные будут заполнены Codemagic после того, как вы загрузите
-      # свои сертификаты и профили провизионирования через UI Codemagic.
-      ios_bundle_id: "org.example.firstproject" # Замените на ваш Bundle ID
-      xcode_scheme: "iosApp" # Имя схемы Xcode-проекта (обычно совпадает с именем проекта/таргета)
-      xcode_project: "iosApp/iosApp.xcodeproj" # Путь к вашему Xcode-проекту
-      
-      # Optional: Если вы хотите использовать определенную версию Xcode,
-      # раскомментируйте и укажите (например, 15.3.0)
-      # XCODE_VERSION: "15.3.0" 
+      vars:
+        # Переменные, специфичные для вашего проекта.
+        # Замените значения на свои.
+        XCODE_WORKSPACE: "iosApp.xcworkspace" # Используйте .xcworkspace, если у вас CocoaPods, иначе .xcodeproj
+        XCODE_SCHEME: "iosApp"                # Имя схемы вашего iOS-приложения в Xcode
+        # Если вы не используете Cocoapods, замените XCODE_WORKSPACE на XCODE_PROJECT: "iosApp.xcodeproj"
+        # и соответствующим образом измените команды xcode-project build-ipa
 
-      # Переменные для Kotlin и Gradle
-      FLUTTER_SDK_VERSION: 3.22.0 # Используется для доступа к некоторым утилитам CI
-      KOTLIN_VERSION: 1.9.22 # Версия Kotlin в вашем проекте
-      GRADLE_BUILD_OPTIONS: "-Pkotlin.native.version=$KOTLIN_VERSION" # Опции для Gradle
+      # Версия Xcode, которую использовать на сборочной машине.
+      # Убедитесь, что она соответствует требованиям вашего проекта.
+      xcode: 15.3 # Например, 15.3
 
-    # Глобальные скрипты, которые выполняются перед каждым шагом
+      # Версия Java для Gradle.
+      # Убедитесь, что она соответствует требованиям вашего проекта и Gradle.
+      java: 17 # Например, 17 или 21
+
+    triggering:
+      events:
+        - push
+        - pull_request
+      # ignore:
+      #   - tags/* # Закомментируйте, если хотите игнорировать сборки по тегам
+
     scripts:
-      - name: Set up Flutter (contains Dart and other utils needed for Codemagic)
-        # Flutter SDK используется Codemagic для некоторых утилит, даже если это не Flutter проект
-        # Убедитесь, что версия достаточно свежая для вашего Xcode/macOS
+      # 1. Настройка прав для Gradle Wrapper
+      - name: Set up Gradle Wrapper permissions
         script: |
-          flutter sdk use $FLUTTER_SDK_VERSION
-          # Проверяем, что необходимые компоненты Xcode установлены
-          xcode-select --install || true # Установка Command Line Tools, если не установлены
-          # Установка CocoaPods, если они используются в вашем iosApp
-          gem install cocoapods
+          chmod +x ./gradlew
 
-      - name: Cache Gradle packages
-        # Кэширование зависимостей Gradle для ускорения последующих сборок
+      # 2. Сборка общего Kotlin Multiplatform iOS фреймворка
+      # Эта задача компилирует ваш Kotlin-код из модуля 'shared' в нативный iOS фреймворк.
+      # 'linkReleaseFrameworkIosArm64' собирает фреймворк для реальных устройств и симуляторов.
+      # Если нужен только отладочный, используйте 'linkDebugFrameworkIosArm64'.
+      - name: Build Kotlin Multiplatform iOS Framework
         script: |
-          # Убедитесь, что директория .gradle существует
-          mkdir -p ~/.gradle
-          # Проверяем наличие кэша и восстанавливаем его
-          if [ -d "$CM_CACHE_DIR/gradle" ]; then
-            cp -r "$CM_CACHE_DIR/gradle" ~/.gradle/caches
-          fi
-        # Определяем пути, которые будут кэшироваться
-        caching:
-          - ~/.gradle/caches
+          ./gradlew :shared:linkReleaseFrameworkIosArm64
 
-    # Пошаговое выполнение сборки
-    steps:
-      - name: Install dependencies for shared module
-        # Переходим в директорию shared и запускаем clean (опционально)
+      # 3. Установка CocoaPods (если ваш 'iosApp' использует CocoaPods)
+      # Закомментируйте эту секцию, если ваш iOS-проект не использует CocoaPods.
+      - name: Install CocoaPods
         script: |
-          cd shared
-          ./gradlew clean --no-daemon
+          cd $CM_BUILD_DIR/iosApp
+          pod install --repo-update
 
-      - name: Build shared iOS framework (debug for tests)
-        # Собираем Kotlin/Native фреймворк для iOS. 
-        # Используем Debug-версию для тестов, чтобы ускорить сборку.
+      # 4. (Опционально) Увеличение номера сборки
+      # Эта секция использует app-store-connect CLI для получения номера сборки,
+      # но поскольку вы не используете публикацию, она может быть удалена или изменена.
+      # Если вы не будете публиковать в App Store Connect,
+      # 'app-store-connect get-latest-app-store-build-number' не будет работать.
+      # Вместо этого вы можете просто увеличивать номер версии вручную или использовать
+      # другой механизм для версионирования.
+      - name: Increment build number (optional, adjust as needed)
         script: |
-          cd shared
-          ./gradlew :shared:linkDebugFrameworkIosX64
-          ./gradlew :shared:linkDebugFrameworkIosArm64 # Для симулятора и устройств
-          # Также можно использовать linkReleaseFrameworkIosArm64 для релизной сборки,
-          # но для тестов Debug обычно достаточно и быстрее.
-          # Если вы хотите собирать только Release:
-          # ./gradlew :shared:linkReleaseFrameworkIosArm64
+          #!/bin/sh
+          set -e
+          set -x
+          cd $CM_BUILD_DIR/iosApp # Переходим в директорию Xcode-проекта
+          # Пример простого увеличения номера сборки, не привязанного к App Store Connect:
+          # current_build=$(xcode-project get-info-plist-value --path "iosApp/Info.plist" --key "CFBundleVersion")
+          # new_build=$(($current_build + 1))
+          # xcode-project set-info-plist-value --path "iosApp/Info.plist" --key "CFBundleVersion" --value "$new_build"
+          
+          # Если вы все равно хотите использовать agvtool и не привязаны к App Store Connect для номера
+          # можете установить начальное значение или получить его из другой системы
+          agvtool new-version -all $(($CM_BUILD_NUMBER + 1)) # Использует внутренний номер сборки Codemagic
+          echo "Build number updated to $(($CM_BUILD_NUMBER + 1))"
 
-      - name: Run iOS tests (optional)
-        # Запускаем тесты iOS-приложения. Требует наличия тестов в Xcode-проекте.
-        # Этот шаг выполняется после успешной сборки фреймворка.
+      # 5. Сборка IPA для распределения (даже без подписывания)
+      # Это создаст архив и IPA-файл.
+      # Если у вас нет CocoaPods, замените '--workspace "$XCODE_WORKSPACE"'
+      # на '--project "iosApp.xcodeproj"'.
+      # Обратите внимание: без секции 'ios_signing' и соответствующих настроек
+      # этот IPA не будет подписан и не сможет быть установлен на реальное устройство.
+      - name: Build IPA for distribution
         script: |
-          cd iosApp
-          xcodebuild test -project "$XCODE_PROJECT" \
-            -scheme "$XCODE_SCHEME" \
-            -destination 'platform=iOS Simulator,name=iPhone 15' | xcpretty
-        # Указываем, что этот шаг может завершиться с ошибкой, но не прерывать весь workflow
-        # Если тесты не критичны для успешной сборки IPA
-        # ignore_failure: true 
+          cd $CM_BUILD_DIR/iosApp
+          xcode-project build-ipa \
+            --workspace "$XCODE_WORKSPACE" \
+            --scheme "$XCODE_SCHEME" \
+            --clean # Очистка перед сборкой для надежности
+            # Если вы не используете подписывание, вам может понадобиться убрать '--exportOptionsPlist'
+            # или указать очень минимальный, без информации о подписывании.
+            # Если вы вообще не хотите IPA, а просто проверить компиляцию, можно использовать 'xcodebuild build'
+            # вместо 'xcode-project build-ipa'.
 
-      - name: Prepare for iOS build (install CocoaPods if needed)
-        # Если ваш iosApp использует CocoaPods, убедитесь, что они установлены
-        script: |
-          cd iosApp
-          pod install --repo-update || true # Устанавливаем поды, если есть. `|| true` предотвращает ошибку, если нет Podfile.
-
-      - name: iOS Code Signing
-        # Этот шаг автоматически использует сертификаты и профили, загруженные в Codemagic UI.
-        script: |
-          # Включите автоматическую обработку подписывания кода
-          # Если вы используете ручное подписывание, здесь может быть другая логика
-          # Дополнительно: `keychain initialize` и `keychain add` если вы вручную управляете сертификатами
-          echo "Preparing for iOS Code Signing..."
-          # Автоматически находит сертификат и профиль
-          # Для этого убедитесь, что они загружены в Codemagic UI
-          # и настроен `ios_bundle_id`, `xcode_scheme`
-
-      - name: Build iOS Release App
-        # Финальная сборка iOS-приложения.
-        # Используем `archive` для создания IPA-файла.
-        script: |
-          cd iosApp
-          xcodebuild -workspace "iosApp.xcworkspace" \
-            -scheme "$XCODE_SCHEME" \
-            -sdk iphoneos \
-            -configuration Release \
-            archive -archivePath build/iosApp.xcarchive \
-            CODE_SIGN_STYLE="Automatic" | xcpretty
-
-      - name: Export iOS App
-        # Экспорт IPA-файла из архива.
-        script: |
-          cd iosApp
-          xcodebuild -exportArchive -archivePath build/iosApp.xcarchive \
-            -exportOptionsPlist exportOptions.plist \
-            -exportPath build/ipa
-
-      - name: Publish to App Store Connect (optional)
-        # Разкомментируйте эту секцию, чтобы автоматически публиковать в App Store Connect
-        # Убедитесь, что у вас настроены переменные окружения для App Store Connect
-        # (APPLE_APP_SPECIFIC_PASSWORD, APPLE_ID, APP_STORE_CONNECT_ISSUER_ID, APP_STORE_CONNECT_KEY_IDENTIFIER, APP_STORE_CONNECT_PRIVATE_KEY)
-        # environment:
-        #   vars:
-        #     APP_STORE_CONNECT_APP_ID: 1234567890 # Замените на ID вашего приложения в App Store Connect
-        #     #... другие переменные для подписывания и публикации
-        # script: |
-        #   /usr/local/bin/app-store-connect publish --api_key "$APP_STORE_CONNECT_API_KEY" \
-        #     --issuer_id "$APP_STORE_CONNECT_ISSUER_ID" \
-        #     --key_id "$APP_STORE_CONNECT_KEY_IDENTIFIER" \
-        #     --bundle_id "$ios_bundle_id" \
-        #     --path "build/ipa/iosApp.ipa"
-
-    # Определяем, какие артефакты должны быть сохранены после сборки
     artifacts:
-      - iosApp/build/ipa/**/*.ipa # Сохраняем сгенерированный IPA-файл
-      - iosApp/build/iosApp.xcarchive # Сохраняем Xcode-архив (может быть полезен для отладки)
-      - ~/.gradle/caches/**/*.jar # Кэш Gradle для будущего использования
+      # Путь к сгенерированному IPA файлу.
+      # Codemagic обычно помещает его в 'build/ipa' внутри рабочей директории Xcode-проекта.
+      - iosApp/build/ipa/*.ipa
+      - $CM_BUILD_DIR/iosApp/build/reports/**/*.xml # (Опционально) Если у вас есть тестовые отчеты
+      - /tmp/xcode_logs/*.log # (Опционально) Логи Xcode для отладки
