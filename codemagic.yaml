@@ -48,13 +48,6 @@ workflows:
         script: |
           ./gradlew :composeApp:linkReleaseFrameworkIosArm64
 
-      # 3. Установка CocoaPods (если ваш 'iosApp' использует CocoaPods)
-      # Закомментируйте эту секцию, если ваш iOS-проект не использует CocoaPods.
-      - name: Install CocoaPods
-        script: |
-          cd $CM_BUILD_DIR/iosApp
-          pod install --repo-update
-
 
       # 5. Сборка IPA для распределения (даже без подписывания)
       # Это создаст архив и IPA-файл.
