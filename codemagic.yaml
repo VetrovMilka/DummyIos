@@ -9,6 +9,7 @@ workflows:
       vars:
         XCODE_PROJECT: "iosApp.xcodeproj"
         XCODE_SCHEME: "iosApp"
+        EXPORT_OPTIONS_PLIST_PATH: "iosApp/ExportOptions.plist"
 
       xcode: latest
       java: 21
@@ -33,6 +34,7 @@ workflows:
           xcode-project build-ipa \
             --project "$XCODE_PROJECT" \
             --scheme "$XCODE_SCHEME" \
+            --export-options-plist "$CM_BUILD_DIR/$EXPORT_OPTIONS_PLIST_PATH" \
             --clean
 
     artifacts:
